@@ -2,7 +2,4 @@ Flask==2.3.3
 Flask-Login==0.6.3
 Flask-SQLAlchemy==3.0.5
 Werkzeug==2.3.7
-
-# Use these instead of psycopg2-binary for better compatibility
-# For local development, we'll use SQLite anyway
-# For production, Vercel handles the PostgreSQL driver
+psycopg2-binary==2.9.7
