@@ -5,9 +5,6 @@ from .config import Config
 from .extensions import db, login_manager
 from .models.user import User
 from .routes import auth, emergency, responder, dashboard
-from flask import send_from_directory
-import logging
-logging.basicConfig(level=logging.DEBUG)
 
 def create_app():
     app_dir = os.path.dirname(os.path.abspath(__file__))
@@ -29,11 +26,8 @@ def create_app():
     app.register_blueprint(responder.bp, url_prefix='/responder')
     app.register_blueprint(dashboard.bp, url_prefix='/dashboard')
     
-    # Create tables and ensure directory exists
+    # Create tables
     with app.app_context():
-        # Ensure /tmp exists for Vercel
-        if os.environ.get('VERCEL'):
-            os.makedirs('/tmp', exist_ok=True)
         db.create_all()
     
     @login_manager.user_loader
@@ -44,25 +38,8 @@ def create_app():
     def index():
         return render_template('index.html', user=current_user)
     
-
-@app.route('/test')
-def test():
-    import os
-    import traceback
-    try:
-        return f"""
-        <h1>✅ App is working!</h1>
-        <p>SECRET_KEY: {'SET' if os.environ.get('SECRET_KEY') else 'NOT SET'}</p>
-        <p>VERCEL: {os.environ.get('VERCEL', 'NOT SET')}</p>
-        <p>Database: {app.config.get('SQLALCHEMY_DATABASE_URI', 'NOT SET')}</p>
-        """
-    except Exception as e:
-        return f"<h3>❌ Error:</h3><pre>{traceback.format_exc()}</pre>"
-@app.route('/favicon.ico')
-def favicon():
-    return send_from_directory(os.path.join(app.static_folder, 'images'), 
-                               'favicon.ico', 
-                               mimetype='image/vnd.microsoft.icon')
-
+    @app.route('/favicon.ico')
+    def favicon():
+        return '', 204
     
     return app

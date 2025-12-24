@@ -1,14 +1,14 @@
 import os
 
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'qZikJy06ETFgk7siAfgK_Z9PwjTRdSGKBI4i2e8yZ-U')
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
     
-    # SQLite configuration - Vercel-friendly
-    if os.environ.get('VERCEL'):
-        # Use /tmp for Vercel (writable)
-        SQLALCHEMY_DATABASE_URI = 'sqlite:////tmp/emergency.db'
+    # SQLite for local development, PostgreSQL only on Render
+    if os.environ.get('RENDER'):
+        # Render PostgreSQL (production)
+        SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
     else:
-        # Local development
+        # Local development - SQLite only
         SQLALCHEMY_DATABASE_URI = 'sqlite:///emergency.db'
     
     SQLALCHEMY_TRACK_MODIFICATIONS = False

@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: emergency-minute
+    env: python
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn wsgi:app"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: emergency-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+
+databases:
+  - name: emergency-db
+    databaseName: emergency_minute
+    user: emergency_user
+    plan: starter
