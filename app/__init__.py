@@ -36,5 +36,8 @@ def create_app():
     @app.route('/')
     def index():
         return render_template('index.html', user=current_user)
-    
+    @app.route('/favicon.ico')
+    def favicon():
+         return '', 204  # No content response    
+
     return app
