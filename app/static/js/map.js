@@ -1,26 +1,16 @@
-// Complete working map.js with ALL functions
 let map;
 let victimMarker;
 let responderMarker;
 let routePolyline;
 let updateInterval;
-let watchId;
-let victimLocation = null;
-let responderLocation = null;
+let isTrackingPaused = false;
 
-// Complete initMap function
-window.initMap = function() {
-    console.log('=== Google Maps Callback ===');
+// Initialize map
+function initMap() {
+    console.log('Initializing real-time tracking map...');
     
-    const API_KEY = document.documentElement.getAttribute('data-api-key');
-    const EMERGENCY_ID_RAW = document.documentElement.getAttribute('data-emergency-id');
-    const USER_ROLE = document.documentElement.getAttribute('data-user-role');
-    const EMERGENCY_ID = EMERGENCY_ID_RAW === 'null' ? null : parseInt(EMERGENCY_ID_RAW);
+    const defaultLocation = { lat: 20.5937, lng: 78.9629 }; // India center
     
-    console.log('Starting map initialization with:', {API_KEY, EMERGENCY_ID, USER_ROLE});
-    
-    // Initialize map
-    const defaultLocation = { lat: 20.5937, lng: 78.9629 };
     map = new google.maps.Map(document.getElementById('map'), {
         zoom: EMERGENCY_ID ? 15 : 10,
         center: defaultLocation,
@@ -30,107 +20,56 @@ window.initMap = function() {
         mapTypeControl: false,
         streetViewControl: false,
     });
-    
+
+    // Set up tracking based on emergency ID
     if (EMERGENCY_ID) {
-        startEmergencyTracking(EMERGENCY_ID);
+        // Specific emergency tracking
+        loadEmergencyLocations(EMERGENCY_ID);
+        startLiveUpdates(EMERGENCY_ID);
+        updateConnectionStatus('connected');
     } else {
+        // General map view for responders
         loadAllActiveEmergencies();
+        updateConnectionStatus('connected');
     }
-    
-    updateConnectionStatus('connected');
+
+    // Set up control buttons
     setupControls();
-};
-
-// Complete functions - clean implementation
-function startEmergencyTracking(emergencyId) {
-    loadEmergencyLocations(emergencyId);
-    startLiveUpdates(emergencyId);
-    
-    if (USER_ROLE === 'victim' || USER_ROLE === 'responder') {
-        startRealTimeLocationSharing(emergencyId);
-    }
 }
 
-function startRealTimeLocationSharing(emergencyId) {
-    if (!navigator.geolocation) {
-        showError('Geolocation is not supported by your browser');
-        return;
-    }
-    
-    watchId = navigator.geolocation.watchPosition(
-        (position) => {
-            sendLocationUpdate(emergencyId, position.coords.latitude, position.coords.longitude);
-        },
-        (error) => {
-            handleGeolocationError(error);
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
-    );
-}
-
-function sendLocationUpdate(emergencyId, latitude, longitude) {
-    const endpoint = USER_ROLE === 'victim' 
-        ? `/map/sos/update-location` 
-        : `/map/responder/${emergencyId}/update-location`;
-    
-    fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ latitude: latitude, longitude: longitude })
-    }).then(response => {
-        if (response.ok) {
-            updateLastUpdateTime();
+// Set up control buttons
+function setupControls() {
+    document.getElementById('center-btn')?.addEventListener('click', () => {
+        if (victimMarker) {
+            map.setCenter(victimMarker.getPosition());
+            map.setZoom(16);
         }
+    });
+
+    document.getElementById('toggle-tracking')?.addEventListener('click', () => {
+        toggleTracking();
     });
 }
 
-function loadEmergencyLocations(emergencyId) {
-    fetch(`/map/${emergencyId}/location`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.victim_location) {
-                updateVictimMarker(data.victim_location);
-                updateLocationInfo('victim', data.victim_location);
-            }
-            if (data.responder_location) {
-                updateResponderMarker(data.responder_location);
-                updateLocationInfo('responder', data.responder_location);
-                drawRoute();
-                updateDistanceInfo(data.victim_location, data.responder_location);
-            }
-            updateLastUpdateTime();
-            updateConnectionStatus('connected');
-        })
-        .catch(error => {
-            updateConnectionStatus('disconnected');
-            showError('Failed to load locations');
-        });
-}
-
-function startLiveUpdates(emergencyId) {
-    updateInterval = setInterval(() => {
-        if (!isTrackingPaused) {
-            loadEmergencyLocations(emergencyId);
+// Toggle tracking on/off
+function toggleTracking() {
+    isTrackingPaused = !isTrackingPaused;
+    const button = document.getElementById('toggle-tracking');
+    
+    if (isTrackingPaused) {
+        if (updateInterval) clearInterval(updateInterval);
+        button.textContent = '▶️ Resume Updates';
+        updateConnectionStatus('disconnected');
+    } else {
+        if (EMERGENCY_ID) {
+            startLiveUpdates(EMERGENCY_ID);
         }
-    }, 5000);
-}
-
-function updateLocationInfo(type, location) {
-    const infoElement = document.getElementById(`${type}-info`);
-    if (infoElement) {
-        const time = new Date().toLocaleTimeString();
-        infoElement.innerHTML = `${type.charAt(0).toUpperCase() + type.slice(1)}: ${location.lat.toFixed(4)}, ${location.lng.toFixed(4)} (Updated: ${time})`;
+        button.textContent = '⏸️ Pause Updates';
+        updateConnectionStatus('connected');
     }
 }
 
-function updateDistanceInfo(victimLoc, responderLoc) {
-    const distanceElement = document.getElementById('distance-info');
-    if (distanceElement && victimLoc && responderLoc) {
-        const distance = calculateDistance(victimLoc.lat, victimLoc.lng, responderLoc.lat, responderLoc.lng);
-        distanceElement.innerHTML = `Distance: ${distance.toFixed(2)} km (${(distance * 0.621371).toFixed(2)} miles)`;
-    }
-}
-
+// Update connection status
 function updateConnectionStatus(status) {
     const statusElement = document.getElementById('connection-status');
     if (statusElement) {
@@ -139,13 +78,90 @@ function updateConnectionStatus(status) {
     }
 }
 
-function updateLastUpdateTime() {
-    const timeElement = document.getElementById('last-update');
-    if (timeElement) {
-        timeElement.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+// Load emergency locations
+async function loadEmergencyLocations(emergencyId) {
+    try {
+        const response = await fetch(`/map/${emergencyId}/location`);
+        const data = await response.json();
+        
+        if (data.victim_location) {
+            updateVictimMarker(data.victim_location);
+            updateLocationInfo('victim', data.victim_location);
+        }
+        
+        if (data.responder_location) {
+            updateResponderMarker(data.responder_location);
+            updateLocationInfo('responder', data.responder_location);
+            drawRoute();
+            updateDistanceInfo(data.victim_location, data.responder_location);
+        }
+        
+        updateLastUpdateTime();
+        updateConnectionStatus('connected');
+    } catch (error) {
+        console.error('Failed to load locations:', error);
+        updateConnectionStatus('disconnected');
+        document.getElementById('error-display').style.display = 'block';
+        document.getElementById('error-display').innerHTML = 'Failed to load locations: ' + error.message;
     }
 }
 
+// Load all active emergencies (for general map view)
+async function loadAllActiveEmergencies() {
+    try {
+        const response = await fetch('/map/active');
+        const emergencies = await response.json();
+        
+        emergencies.forEach(emergency => {
+            const marker = new google.maps.Marker({
+                position: emergency.location,
+                map: map,
+                title: `${emergency.type} - ${emergency.victim_name}`,
+                icon: { url: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png' }
+            });
+            
+            const infoWindow = new google.maps.InfoWindow({
+                content: `
+                    <div class="info-window">
+                        <h4>🚨 ${emergency.type}</h4>
+                        <p><strong>Victim:</strong> ${emergency.victim_name}</p>
+                        <p><strong>Time:</strong> ${new Date(emergency.created_at).toLocaleTimeString()}</p>
+                        <button onclick="acceptEmergency(${emergency.id})" class="btn btn-primary btn-sm">Accept</button>
+                    </div>
+                `
+            });
+            
+            marker.addListener('click', () => infoWindow.open(map, marker));
+        });
+        
+        updateLastUpdateTime();
+    } catch (error) {
+        console.error('Failed to load active emergencies:', error);
+    }
+}
+
+// Update location info panel
+function updateLocationInfo(type, location) {
+    const infoElement = document.getElementById(`${type}-info`);
+    if (infoElement) {
+        const time = new Date().toLocaleTimeString();
+        infoElement.innerHTML = `${type.charAt(0).toUpperCase() + type.slice(1)}: ${location.lat.toFixed(4)}, ${location.lng.toFixed(4)} (Updated: ${time})`;
+    }
+}
+
+// Update distance info
+function updateDistanceInfo(victimLoc, responderLoc) {
+    const distanceElement = document.getElementById('distance-info');
+    if (distanceElement && victimLoc && responderLoc) {
+        const distance = calculateDistance(
+            victimLoc.lat, victimLoc.lng,
+            responderLoc.lat, responderLoc.lng
+        );
+        distanceElement.innerHTML = `Distance: ${distance.toFixed(2)} km (${(distance * 0.621371).toFixed(2)} miles)`;
+    }
+}
+
+// Calculate distance using Haversine formula
 function calculateDistance(lat1, lon1, lat2, lon2) {
     const R = 6371; // Earth's radius in kilometers
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -157,106 +173,97 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     return R * c;
 }
 
-function setupControls() {
-    document.getElementById('center-btn')?.addEventListener('click', () => {
-        if (victimMarker) {
-            map.setCenter(victimMarker.getPosition());
-            map.setZoom(16);
-        }
-    });
-}
-
-function acceptEmergency(emergencyId) {
-    fetch(`/responder/accept/${emergencyId}`, { method: 'POST' })
-        .then(response => {
-            if (response.ok) {
-                window.location.href = `/map/${emergencyId}`;
-            }
-        })
-        .catch(error => console.error('Failed to accept emergency:', error));
-}
-
-// Cleanup
-window.addEventListener('beforeunload', () => {
-    if (updateInterval) clearInterval(updateInterval);
-    if (watchId) navigator.geolocation.clearWatch(watchId);
-});
-
-// Clean error handling
-window.addEventListener('error', function(e) {
-    if (e.error.message.includes('Google Maps')) {
-        console.error('Google Maps error:', e.error.message);
-    }
-});
-
-// Add this missing function to your map.js
-function loadAllActiveEmergencies() {
-    console.log('📡 Loading all active emergencies');
-    
-    try {
-        fetch('/map/active')
-            .then(response => response.json())
-            .then(emergencies => {
-                console.log('📍 Active emergencies received:', emergencies.length, 'emergencies');
-                
-                emergencies.forEach(emergency => {
-                    const marker = new google.maps.Marker({
-                        position: emergency.location,
-                        map: map,
-                        title: `${emergency.type} - ${emergency.victim_name}`,
-                        icon: { url: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png ' }
-                    });
-                    
-                    const infoWindow = new google.maps.InfoWindow({
-                        content: `
-                            <div class="info-window">
-                                <h4>🚨 ${emergency.type}</h4>
-                                <p><strong>Victim:</strong> ${emergency.victim_name}</p>
-                                <p><strong>Time:</strong> ${new Date(emergency.created_at).toLocaleTimeString()}</p>
-                                <button onclick="acceptEmergency(${emergency.id})" class="btn btn-primary btn-sm">Accept</button>
-                            </div>
-                        `
-                    });
-                    
-                    marker.addEventListener('click', () => infoWindow.open(map, marker));
-                });
-                
-                updateLastUpdateTime();
-            })
-            .catch(error => {
-                console.error('❌ Failed to load active emergencies:', error);
-            });
-    } catch (error) {
-        console.error('❌ Failed to load active emergencies:', error);
-    }
-}
-
-// Make sure initMap is available BEFORE Google Maps loads
-window.initMap = window.initMap || function() {
-    console.log('initMap called - starting map initialization');
-    
-    const API_KEY = document.documentElement.getAttribute('data-api-key');
-    const EMERGENCY_ID_RAW = document.documentElement.getAttribute('data-emergency-id');
-    const USER_ROLE = document.documentElement.getAttribute('data-user-role');
-    const EMERGENCY_ID = EMERGENCY_ID_RAW === 'null' ? null : parseInt(EMERGENCY_ID_RAW);
-    
-    const defaultLocation = { lat: 20.5937, lng: 78.9629 };
-    map = new google.maps.Map(document.getElementById('map'), {
-        zoom: EMERGENCY_ID ? 15 : 10,
-        center: defaultLocation,
-        mapTypeId: google.maps.MapTypeId.ROADMAP,
-        disableDefaultUI: false,
-        zoomControl: true,
-        mapTypeControl: false,
-        streetViewControl: false,
-    });
-    
-    if (EMERGENCY_ID) {
-        startEmergencyTracking(EMERGENCY_ID);
+// Update victim marker
+function updateVictimMarker(location) {
+    if (!victimMarker) {
+        victimMarker = new google.maps.Marker({
+            position: location,
+            map: map,
+            title: 'Victim Location',
+            icon: { url: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png', scaledSize: new google.maps.Size(40, 40) }
+        });
     } else {
-        loadAllActiveEmergencies();
+        victimMarker.setPosition(location);
     }
     
-    updateConnectionStatus('connected');
-    setupControls();
-};
+    // Center map on victim if first load
+    if (!responderMarker) {
+        map.setCenter(location);
+    }
+}
+
+// Update responder marker
+function updateResponderMarker(location) {
+    if (!responderMarker) {
+        responderMarker = new google.maps.Marker({
+            position: location,
+            map: map,
+            title: 'Responder Location',
+            icon: { url: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new google.maps.Size(35, 35) }
+        });
+    } else {
+        responderMarker.setPosition(location);
+    }
+}
+
+// Draw route between responder and victim
+function drawRoute() {
+    if (!victimMarker || !responderMarker) return;
+    
+    const path = [
+        victimMarker.getPosition(),
+        responderMarker.getPosition()
+    ];
+    
+    if (routePolyline) {
+        routePolyline.setPath(path);
+    } else {
+        routePolyline = new google.maps.Polyline({
+            path: path,
+            geodesic: true,
+            strokeColor: '#FF0000',
+            strokeOpacity: 1.0,
+            strokeWeight: 3,
+            map: map
+        });
+    }
+}
+
+// Update last update time
+function updateLastUpdateTime() {
+    const timeElement = document.getElementById('last-update');
+    if (timeElement) {
+        timeElement.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+    }
+}
+
+// Accept emergency (for responders)
+async function acceptEmergency(emergencyId) {
+    try {
+        const response = await fetch(`/responder/accept/${emergencyId}`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            window.location.href = `/map/${emergencyId}`;
+        }
+    } catch (error) {
+        console.error('Failed to accept emergency:', error);
+    }
+}
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+    if (updateInterval) {
+        clearInterval(updateInterval);
+    }
+});
+
+// Initialize when Google Maps is ready
+if (typeof google !== 'undefined') {
+    window.initMap = initMap;
+} else {
+    console.error('Google Maps not loaded');
+    document.getElementById('error-display').style.display = 'block';
+    document.getElementById('error-display').innerHTML = 'Google Maps failed to load. Please check your API key.';
+}

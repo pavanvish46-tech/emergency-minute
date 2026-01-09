@@ -4,14 +4,24 @@
 <div class="map-container">
     <h2>🗺️ Emergency Response Map</h2>
     
-    <div id="map" style="width: 100%; height: 500px; border-radius: 8px; background: #f5f5f5; display: flex; align-items: center; justify-content: center;">
-        <div id="loading-message">Loading...</div>
+    <!-- Error display for debugging -->
+    <div id="error-display" style="color: red; display: none;"></div>
+    
+    <!-- Live status indicator -->
+    <div id="status-bar" style="background: #f0f0f0; padding: 10px; margin-bottom: 10px; border-radius: 5px;">
+        <span id="connection-status">🟢 Connected</span>
+        <span id="last-update" style="margin-left: 1rem;">Last update: Never</span>
+        <span id="distance-display" style="margin-left: 1rem;"></span>
     </div>
+    
+    <div id="map" style="width: 100%; height: 500px; border-radius: 8px;"></div>
     
     <div class="map-controls">
         <button id="center-btn" class="btn btn-primary">📍 Center on Emergency</button>
+        <button id="toggle-tracking" class="btn btn-secondary">⏸️ Pause Updates</button>
     </div>
     
+    <!-- Location info panel -->
     <div id="location-info" style="margin-top: 1rem; padding: 1rem; background: #f9f9f9; border-radius: 8px;">
         <h4>📍 Location Info</h4>
         <div id="victim-info">Victim: Loading...</div>
@@ -20,44 +30,24 @@
     </div>
 </div>
 
-<!-- CRITICAL: Define initMap BEFORE Google Maps loads -->
 <script>
-    // Define initMap as global function BEFORE Google Maps script
-    window.initMap = function() {
-        console.log('=== Google Maps Callback ===');
-        
-        const API_KEY = document.documentElement.getAttribute('data-api-key');
-        const EMERGENCY_ID_RAW = document.documentElement.getAttribute('data-emergency-id');
-        const USER_ROLE = document.documentElement.getAttribute('data-user-role');
-        const EMERGENCY_ID = EMERGENCY_ID_RAW === 'null' ? null : parseInt(EMERGENCY_ID_RAW);
-        
-        console.log('Starting map initialization with:', {API_KEY, EMERGENCY_ID, USER_ROLE});
-        
-        // Initialize map
-        const defaultLocation = { lat: 20.5937, lng: 78.9629 };
-        map = new google.maps.Map(document.getElementById('map'), {
-            zoom: EMERGENCY_ID ? 15 : 10,
-            center: defaultLocation,
-            mapTypeId: google.maps.MapTypeId.ROADMAP,
-            disableDefaultUI: false,
-            zoomControl: true,
-            mapTypeControl: false,
-            streetViewControl: false,
-        });
-        
-        if (EMERGENCY_ID) {
-            startEmergencyTracking(EMERGENCY_ID);
-        } else {
-            loadAllActiveEmergencies();
-        }
-        
-        updateConnectionStatus('connected');
-        setupControls();
-    };
+    // Store Jinja2 values in data attributes (VS Code friendly)
+    document.documentElement.setAttribute('data-emergency-id', '{{ emergency_id|default("null") }}');
+    document.documentElement.setAttribute('data-user-role', '{{ current_user.role }}');
+    document.documentElement.setAttribute('data-api-key', '{{ config["GOOGLE_MAPS_API_KEY"] }}');
     
-    console.log('Global initMap defined:', typeof window.initMap);
+    // Clean JavaScript variables
+    const API_KEY = document.documentElement.getAttribute('data-api-key');
+    const EMERGENCY_ID_RAW = document.documentElement.getAttribute('data-emergency-id');
+    const USER_ROLE = document.documentElement.getAttribute('data-user-role');
+    const EMERGENCY_ID = EMERGENCY_ID_RAW === 'null' ? null : parseInt(EMERGENCY_ID_RAW);
+    
+    console.log('=== Map Debug Info ===');
+    console.log('API Key present:', API_KEY.length > 0);
+    console.log('Emergency ID:', EMERGENCY_ID);
+    console.log('User Role:', USER_ROLE);
+    console.log('======================');
 </script>
-
 <script src="https://maps.googleapis.com/maps/api/js?key={{ config["GOOGLE_MAPS_API_KEY"] }}&callback=initMap" async defer></script>
 <script src="{{ url_for('static', filename='js/map.js') }}"></script>
 
